@@ -809,6 +809,7 @@
             // Check if a Firebase app is already initialized
             if (!getApps().length) {
                 firebaseApp = initializeApp(firebaseConfig);
+           
             } else {
                 firebaseApp = getApp(); // If already initialized, get the default app
             }
@@ -819,6 +820,7 @@
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     userId = user.uid;
+                    console.log("Current Firebase User ID:", userId);
                     isLoggedIn = true;
                 } else {
                     userId = null;
