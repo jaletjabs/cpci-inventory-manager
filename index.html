@@ -368,11 +368,11 @@
 
         async function handleDeliverItemSubmit(e) {
             e.preventDefault();
-            const drNumber = document.getElementById('drNumber').value.trim(); // Get DR Number
+            const drNumber = document.getElementById('drNumber').value.trim();
             const selectedItemId = document.getElementById('itemSelectDelivery').value;
             const clientName = document.getElementById('clientName').value.trim();
             const quantityDeliveredInput = document.getElementById('quantityDelivered');
-            const quantityDelivered = parseInt(quantityDeliveredInput.value); // Correctly assigned here
+            const quantityDelivered = parseInt(quantityDeliveredInput.value);
             const deliveryDate = document.getElementById('deliveryDate').value;
 
             if (!drNumber || !selectedItemId || !clientName || isNaN(quantityDelivered) || quantityDelivered <= 0 || !deliveryDate) {
@@ -386,7 +386,10 @@
                 return;
             }
 
-            if (quantityDelivered > currentStock) { // Corrected: using quantityDelivered
+            // Corrected: Use currentStock from the UI, which is updated via currentItems
+            // This ensures the check is against the currently displayed stock.
+            const currentStockForCheck = parseInt(document.getElementById('deliveryCurrentStockDisplay').textContent);
+            if (quantityDelivered > currentStockForCheck) {
                 showMessage('Quantity delivered cannot exceed stock on hand.', 'error');
                 return;
             }
@@ -401,13 +404,13 @@
                     return;
                 }
 
-                const currentStockAfterCheck = itemDoc.data().stockOnHand || 0;
-                if (quantityDelivered > currentStockAfterCheck) {
-                    showMessage('Quantity delivered cannot exceed stock on hand. Stock updated by another user.', 'error');
+                const currentStockFromDB = itemDoc.data().stockOnHand || 0;
+                if (quantityDelivered > currentStockFromDB) {
+                    showMessage('Quantity delivered cannot exceed stock on hand. Stock might have been updated by another user.', 'error');
                     return;
                 }
 
-                const newStock = currentStockAfterCheck - quantityDelivered;
+                const newStock = currentStockFromDB - quantityDelivered;
 
                 await updateDoc(itemRef, {
                     stockOnHand: newStock,
@@ -417,7 +420,7 @@
                 // Modified path to public_inventory_data/main_data/deliveries
                 const deliveriesRef = collection(db, `artifacts/${appId}/public_inventory_data/main_data/deliveries`);
                 await addDoc(deliveriesRef, {
-                    drNumber: drNumber, // Store DR Number
+                    drNumber: drNumber,
                     itemId: selectedItemId,
                     itemCode: selectedItemData.itemCode,
                     description: selectedItemData.description,
@@ -506,6 +509,7 @@
                 let totalQuantity = 0;
 
                 if (filteredDeliveries.length === 0) {
+                    // Adjusted colspan to 6 for the new DR Number column
                     tableHtml = `<tr><td colspan="6" class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 text-center">No deliveries found for the selected criteria.</td></tr>`;
                 } else {
                     filteredDeliveries.forEach(delivery => {
