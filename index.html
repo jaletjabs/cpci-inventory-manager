@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPCI CEBU Inventory Manager</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for rounded corners, shadows, etc. */
+        .rounded-md { border-radius: 0.375rem; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+        .shadow-md { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+        .shadow-xl { box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-100 p-4 font-sans antialiased">
+
+    <div id="app-container" class="max-w-4xl mx-auto">
+        <h1 class="text-4xl font-extrabold text-center text-gray-900 mb-8">
+            CPCI CEBU Inventory Manager
+        </h1>
+
+        <div id="message-area" class="hidden p-3 mb-4 rounded-md text-center"></div>
+
+        <div id="main-content">
+            <!-- Content will be rendered here by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, updateDoc, onSnapshot, collection, query, where, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // YOUR ACTUAL FIREBASE CONFIGURATION - Provided by the user
+        // This configuration is directly embedded for the HTML file.
+        const firebaseConfig = {
+            apiKey: "AIzaSyBo7RhB1eyE9bH4K3QMkgyNQyxpdTypbgU",
+            authDomain: "cpci-inventory.firebaseapp.com",
+            projectId: "cpci-inventory",
+            storageBucket: "cpci-inventory.firebasestorage.app",
+            messagingSenderId: "846983846929",
+            appId: "1:846983846929:web:e94df6ee5cc44ea3eea5b0",
+            measurementId: "G-57MK0M20TJ"
+        };
+
+        // Derive appId directly from the provided firebaseConfig
+        const appId = firebaseConfig.appId;
+        // initialAuthToken is not used in this local setup with hardcoded login, so it's explicitly null.
+        const initialAuthToken = null; // Keep this as null
+
+        // Firebase instances
+        let app;
+        let db;
+        let auth;
+        let userId = null;
+
+        // Hardcoded credentials
+        const CORRECT_USERNAME = "CPCI";
+        const CORRECT_PASSWORD = "CPCI_CEBU";
+
+        // State variables (managed manually for HTML/JS)
+        let isLoggedIn = false;
+        let currentPage = 'home'; // 'home', 'addItem', 'addStock', 'deliverItem', 'deliveryReport', 'availableStocks'
+
+        const mainContentDiv = document.getElementById('main-content');
+        const messageArea = document.getElementById('message-area');
+
+        // Function to show messages to the user
+        function showMessage(msg, type) {
+            messageArea.textContent = msg;
+            messageArea.className = `p-3 mb-4 rounded-md text-center ${type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
+            messageArea.classList.remove('hidden');
+            setTimeout(() => {
+                messageArea.classList.add('hidden');
+                messageArea.textContent = '';
+            }, 3000); // Message disappears after 3 seconds
+        }
+
+        // Handle logout function
+        async function handleLogout() {
+            try {
+                if (auth) {
+                    await signOut(auth);
+                }
+                isLoggedIn = false;
+                userId = null; // Clear userId on logout
+                showMessage('Logged out successfully.', 'success');
+                currentPage = 'home'; // Go back to home/login page
+                renderApp(); // Re-render the app to show login form
+            } catch (error) {
+                console.error("Error logging out:", error);
+                showMessage(`Error logging out: ${error.message}`, 'error');
+            }
+        }
+
+        // Render functions for different pages/components
+        function renderAuthStatus() {
+            return `
+                <div class="p-4 bg-blue-100 text-blue-800 rounded-lg shadow-md mb-6 flex items-center justify-between">
+                    <div class="flex items-center">
+                        <img
+                            src="LOGO CPCI FINAL.png"
+                            alt="CPCI Logo"
+                            class="w-8 h-8 mr-2 rounded-full object-contain"
+                            onerror="this.onerror=null; this.src='https://placehold.co/32x32/cccccc/ffffff?text=LOGO';"
+                        />
+                        <p class="text-sm font-semibold">
+                            Logged in as: <span class="font-mono break-all">${CORRECT_USERNAME}</span>
+                        </p>
+                    </div>
+                    <button id="logout-button" class="ml-4 px-4 py-2 bg-red-500 text-white rounded-md text-sm font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                        Logout
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderNavigation() {
+            return `
+                <nav class="mb-8">
+                    <ul class="flex flex-wrap justify-center gap-3">
+                        <li><button id="nav-home" class="px-5 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${currentPage === 'home' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 hover:bg-gray-50 shadow-sm'}">Home</button></li>
+                        <li><button id="nav-addItem" class="px-5 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${currentPage === 'addItem' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 hover:bg-gray-50 shadow-sm'}">Add Item</button></li>
+                        <li><button id="nav-addStock" class="px-5 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${currentPage === 'addStock' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 hover:bg-gray-50 shadow-sm'}">Add Stock</button></li>
+                        <li><button id="nav-deliverItem" class="px-5 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${currentPage === 'deliverItem' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 hover:bg-gray-50 shadow-sm'}">Record Delivery</button></li>
+                        <li><button id="nav-deliveryReport" class="px-5 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${currentPage === 'deliveryReport' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 hover:bg-gray-50 shadow-sm'}">Delivery Reports</button></li>
+                        <li><button id="nav-availableStocks" class="px-5 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${currentPage === 'availableStocks' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 hover:bg-gray-50 shadow-sm'}">Available Stocks</button></li>
+                    </ul>
+                </nav>
+            `;
+        }
+
+        function renderHomePage() {
+            return `
+                <div class="text-center py-10">
+                    <h2 class="text-3xl font-semibold text-gray-800 mb-4">Welcome to your Inventory Manager!</h2>
+                    <p class="text-gray-600 text-lg">Use the navigation above to manage your items, stock, and deliveries.</p>
+                    <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="p-5 bg-blue-50 rounded-lg shadow-sm">
+                            <h3 class="text-xl font-medium text-blue-800 mb-2">Add Items</h3>
+                            <p class="text-blue-700">Register new intervention items with their unique codes and descriptions.</p>
+                        </div>
+                        <div class="p-5 bg-green-50 rounded-lg shadow-sm">
+                            <h3 class="text-xl font-medium text-green-800 mb-2">Manage Stock</h3>
+                            <p class="text-green-700">Update the quantity of items you have on hand.</p>
+                        </div>
+                        <div class="p-5 bg-red-50 rounded-lg shadow-sm">
+                            <h3 class="text-xl font-medium text-red-800 mb-2">Record Deliveries</h3>
+                            <p class="text-red-700">Log items delivered to clients, automatically reducing stock.</p>
+                        </div>
+                        <div class="p-5 bg-purple-50 rounded-lg shadow-sm">
+                            <h3 class="text-xl font-medium text-purple-800 mb-2">View Reports</h3>
+                            <p class="text-purple-700">Track monthly and annual deliveries per client.</p>
+                        </div>
+                        <div class="p-5 bg-yellow-50 rounded-lg shadow-sm">
+                            <h3 class="text-xl font-medium text-yellow-800 mb-2">Available Stocks</h3>
+                            <p class="text-yellow-700">View the current stock levels for all inventory items.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAddItemForm() {
+            return `
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-2xl font-bold mb-4 text-gray-800">Add New Item</h2>
+                    <form id="add-item-form" class="space-y-4">
+                        <div>
+                            <label for="itemCode" class="block text-sm font-medium text-gray-700">Item Code</label>
+                            <input type="text" id="itemCode" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required />
+                        </div>
+                        <div>
+                            <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
+                            <textarea id="description" rows="3" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required></textarea>
+                        </div>
+                        <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            Add Item
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        async function handleAddItemSubmit(e) {
+            e.preventDefault();
+            const itemCodeInput = document.getElementById('itemCode');
+            const descriptionInput = document.getElementById('description');
+            const itemCode = itemCodeInput.value.trim();
+            const description = descriptionInput.value.trim();
+
+            if (!itemCode || !description) {
+                showMessage('Please fill in all fields.', 'error');
+                return;
+            }
+
+            try {
+                const itemsRef = collection(db, `artifacts/${appId}/users/${userId}/items`);
+                const q = query(itemsRef, where('itemCode', '==', itemCode));
+                const querySnapshot = await getDocs(q);
+
+                if (!querySnapshot.empty) {
+                    showMessage('Item with this code already exists.', 'error');
+                    return;
+                }
+
+                await addDoc(itemsRef, {
+                    itemCode: itemCode,
+                    description: description,
+                    stockOnHand: 0,
+                    createdAt: serverTimestamp()
+                });
+                showMessage('Item added successfully!', 'success');
+                itemCodeInput.value = '';
+                descriptionInput.value = '';
+            } catch (error) {
+                console.error("Error adding item:", error);
+                showMessage(`Error adding item: ${error.message}`, 'error');
+            }
+        }
+
+        let currentItems = []; // To store items for dropdowns
+
+        async function renderAddStockForm() {
+            const itemsRef = collection(db, `artifacts/${appId}/users/${userId}/items`);
+            const snapshot = await getDocs(itemsRef);
+            currentItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            let optionsHtml = '<option value="">-- Select an Item --</option>';
+            currentItems.forEach(item => {
+                optionsHtml += `<option value="${item.id}">${item.itemCode} - ${item.description} (Current Stock: ${item.stockOnHand})</option>`;
+            });
+
+            return `
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-2xl font-bold mb-4 text-gray-800">Add Stock to Item</h2>
+                    <form id="add-stock-form" class="space-y-4">
+                        <div>
+                            <label for="itemSelect" class="block text-sm font-medium text-gray-700">Select Item</label>
+                            <select id="itemSelect" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required>
+                                ${optionsHtml}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Current Stock</label>
+                            <p id="currentStockDisplay" class="mt-1 text-lg font-semibold text-gray-900">0</p>
+                        </div>
+                        <div>
+                            <label for="quantity" class="block text-sm font-medium text-gray-700">Quantity to Add</label>
+                            <input type="number" id="quantity" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required />
+                        </div>
+                        <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                            Add Stock
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        async function handleAddStockSubmit(e) {
+            e.preventDefault();
+            const selectedItemId = document.getElementById('itemSelect').value;
+            const quantityInput = document.getElementById('quantity');
+            const quantity = parseInt(quantityInput.value);
+
+            if (!selectedItemId || isNaN(quantity) || quantity <= 0) {
+                showMessage('Please select an item and enter a valid positive quantity.', 'error');
+                return;
+            }
+
+            try {
+                const itemRef = doc(db, `artifacts/${appId}/users/${userId}/items`, selectedItemId);
+                const itemDoc = await getDoc(itemRef);
+
+                if (!itemDoc.exists()) {
+                    showMessage('Selected item not found.', 'error');
+                    return;
+                }
+
+                const currentStock = itemDoc.data().stockOnHand || 0;
+                const newStock = currentStock + quantity;
+
+                await updateDoc(itemRef, {
+                    stockOnHand: newStock,
+                    updatedAt: serverTimestamp()
+                });
+                showMessage(`Stock updated successfully! New stock: ${newStock}`, 'success');
+                // Re-render the form to update dropdown and stock display
+                renderPage(currentPage);
+            } catch (error) {
+                console.error("Error adding stock:", error);
+                showMessage(`Error adding stock: ${error.message}`, 'error');
+            }
+        }
+
+        function updateCurrentStockDisplay() {
+            const itemSelect = document.getElementById('itemSelect');
+            const currentStockDisplay = document.getElementById('currentStockDisplay');
+            if (itemSelect && currentStockDisplay) {
+                const selectedItemId = itemSelect.value;
+                const selectedItem = currentItems.find(item => item.id === selectedItemId);
+                currentStockDisplay.textContent = selectedItem ? selectedItem.stockOnHand : 0;
+            }
+        }
+
+        async function renderDeliverItemForm() {
+            const itemsRef = collection(db, `artifacts/${appId}/users/${userId}/items`);
+            const snapshot = await getDocs(itemsRef);
+            currentItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            let optionsHtml = '<option value="">-- Select an Item --</option>';
+            currentItems.forEach(item => {
+                optionsHtml += `<option value="${item.id}">${item.itemCode} - ${item.description} (Stock: ${item.stockOnHand})</option>`;
+            });
+
+            const today = new Date().toISOString().split('T')[0];
+
+            return `
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-2xl font-bold mb-4 text-gray-800">Record Item Delivery</h2>
+                    <form id="deliver-item-form" class="space-y-4">
+                        <div>
+                            <label for="drNumber" class="block text-sm font-medium text-gray-700">DR Number</label>
+                            <input type="text" id="drNumber" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required />
+                        </div>
+                        <div>
+                            <label for="itemSelectDelivery" class="block text-sm font-medium text-gray-700">Select Item</label>
+                            <select id="itemSelectDelivery" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required>
+                                ${optionsHtml}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Current Stock</label>
+                            <p id="deliveryCurrentStockDisplay" class="mt-1 text-lg font-semibold text-gray-900">0</p>
+                        </div>
+                        <div>
+                            <label for="clientName" class="block text-sm font-medium text-gray-700">Client Name</label>
+                            <input type="text" id="clientName" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required />
+                        </div>
+                        <div>
+                            <label for="quantityDelivered" class="block text-sm font-medium text-gray-700">Quantity Delivered</label>
+                            <input type="number" id="quantityDelivered" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required />
+                        </div>
+                        <div>
+                            <label for="deliveryDate" class="block text-sm font-medium text-gray-700">Delivery Date</label>
+                            <input type="date" id="deliveryDate" value="${today}" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required />
+                        </div>
+                        <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                            Record Delivery
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        async function handleDeliverItemSubmit(e) {
+            e.preventDefault();
+            const drNumber = document.getElementById('drNumber').value.trim(); // Get DR Number
+            const selectedItemId = document.getElementById('itemSelectDelivery').value;
+            const clientName = document.getElementById('clientName').value.trim();
+            const quantityDeliveredInput = document.getElementById('quantityDelivered');
+            const quantityDelivered = parseInt(quantityDeliveredInput.value);
+            const deliveryDate = document.getElementById('deliveryDate').value;
+
+            if (!drNumber || !selectedItemId || !clientName || isNaN(quantityDelivered) || quantityDelivered <= 0 || !deliveryDate) {
+                showMessage('Please fill in all fields with valid data.', 'error');
+                return;
+            }
+
+            const selectedItemData = currentItems.find(item => item.id === selectedItemId);
+            if (!selectedItemData) {
+                showMessage('Selected item data not found.', 'error');
+                return;
+            }
+
+            if (quantityDelivered > selectedItemData.stockOnHand) {
+                showMessage('Quantity delivered cannot exceed stock on hand.', 'error');
+                return;
+            }
+
+            try {
+                const itemRef = doc(db, `artifacts/${appId}/users/${userId}/items`, selectedItemId);
+                const itemDoc = await getDoc(itemRef);
+
+                if (!itemDoc.exists()) {
+                    showMessage('Selected item not found.', 'error');
+                    return;
+                }
+
+                const currentStockAfterCheck = itemDoc.data().stockOnHand || 0;
+                if (quantityDelivered > currentStockAfterCheck) {
+                    showMessage('Quantity delivered cannot exceed stock on hand. Stock updated by another user.', 'error');
+                    return;
+                }
+
+                const newStock = currentStockAfterCheck - quantityDelivered;
+
+                await updateDoc(itemRef, {
+                    stockOnHand: newStock,
+                    updatedAt: serverTimestamp()
+                });
+
+                const deliveriesRef = collection(db, `artifacts/${appId}/users/${userId}/deliveries`);
+                await addDoc(deliveriesRef, {
+                    drNumber: drNumber, // Store DR Number
+                    itemId: selectedItemId,
+                    itemCode: selectedItemData.itemCode,
+                    description: selectedItemData.description,
+                    clientName: clientName,
+                    quantityDelivered: quantityDelivered,
+                    deliveryDate: new Date(deliveryDate),
+                    createdAt: serverTimestamp()
+                });
+
+                showMessage(`Delivery recorded! New stock for ${selectedItemData.itemCode}: ${newStock}`, 'success');
+                // Re-render the form to update dropdown and stock display
+                renderPage(currentPage);
+            } catch (error) {
+                console.error("Error recording delivery:", error);
+                showMessage(`Error recording delivery: ${error.message}`, 'error');
+            }
+        }
+
+        function updateDeliveryCurrentStockDisplay() {
+            const itemSelectDelivery = document.getElementById('itemSelectDelivery');
+            const deliveryCurrentStockDisplay = document.getElementById('deliveryCurrentStockDisplay');
+            if (itemSelectDelivery && deliveryCurrentStockDisplay) {
+                const selectedItemId = itemSelectDelivery.value;
+                const selectedItem = currentItems.find(item => item.id === selectedItemId);
+                deliveryCurrentStockDisplay.textContent = selectedItem ? selectedItem.stockOnHand : 0;
+            }
+        }
+
+
+        async function renderDeliveryReport() {
+            const pageContentDiv = document.getElementById('page-content');
+            if (!pageContentDiv) return; // Ensure page-content div exists
+
+            const deliveriesRef = collection(db, `artifacts/${appId}/users/${userId}/deliveries`);
+            const snapshot = await getDocs(deliveriesRef);
+            const deliveries = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                deliveryDate: doc.data().deliveryDate ? doc.data().deliveryDate.toDate() : null
+            }));
+
+            let filteredDeliveries = [...deliveries];
+            let clientFilter = '';
+            let reportType = 'monthly';
+            let monthFilter = '';
+            let yearFilter = '';
+
+            function applyFilters() {
+                let tempDeliveries = [...deliveries];
+
+                if (clientFilter) {
+                    tempDeliveries = tempDeliveries.filter(d =>
+                        d.clientName.toLowerCase().includes(clientFilter.toLowerCase())
+                    );
+                }
+
+                if (reportType === 'monthly' && monthFilter) {
+                    const [filterYear, filterMonth] = monthFilter.split('-').map(Number);
+                    tempDeliveries = tempDeliveries.filter(d => {
+                        if (!d.deliveryDate) return false;
+                        const dYear = d.deliveryDate.getFullYear();
+                        const dMonth = d.deliveryDate.getMonth() + 1;
+                        return dYear === filterYear && dMonth === filterMonth;
+                    });
+                } else if (reportType === 'annual' && yearFilter) {
+                    const filterYear = parseInt(yearFilter);
+                    tempDeliveries = tempDeliveries.filter(d => {
+                        if (!d.deliveryDate) return false;
+                        const dYear = d.deliveryDate.getFullYear();
+                        return dYear === filterYear;
+                    });
+                }
+
+                tempDeliveries.sort((a, b) => b.deliveryDate - a.deliveryDate);
+                filteredDeliveries = tempDeliveries;
+                updateReportTable();
+            }
+
+            function updateReportTable() {
+                const tableBody = document.getElementById('deliveryReportTableBody');
+                const totalQuantityDisplay = document.getElementById('totalQuantityDelivered');
+                if (!tableBody || !totalQuantityDisplay) return;
+
+                let tableHtml = '';
+                let totalQuantity = 0;
+
+                if (filteredDeliveries.length === 0) {
+                    tableHtml = `<tr><td colspan="6" class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 text-center">No deliveries found for the selected criteria.</td></tr>`;
+                } else {
+                    filteredDeliveries.forEach(delivery => {
+                        totalQuantity += delivery.quantityDelivered;
+                        tableHtml += `
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    ${delivery.drNumber || 'N/A'}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    ${delivery.deliveryDate ? delivery.deliveryDate.toLocaleDateString() : 'N/A'}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    ${delivery.clientName}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    ${delivery.itemCode}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    ${delivery.description}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    ${delivery.quantityDelivered}
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+                tableBody.innerHTML = tableHtml;
+                totalQuantityDisplay.textContent = totalQuantity;
+            }
+
+            // Render the report form structure into pageContentDiv
+            pageContentDiv.innerHTML = `
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-2xl font-bold mb-4 text-gray-800">Delivery Reports</h2>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div>
+                            <label for="clientFilter" class="block text-sm font-medium text-gray-700">Filter by Client Name</label>
+                            <input type="text" id="clientFilter" value="${clientFilter}" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Enter client name" />
+                        </div>
+                        <div>
+                            <label for="reportType" class="block text-sm font-medium text-gray-700">Report Type</label>
+                            <select id="reportType" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                <option value="monthly" ${reportType === 'monthly' ? 'selected' : ''}>Monthly Report</option>
+                                <option value="annual" ${reportType === 'annual' ? 'selected' : ''}>Annual Report</option>
+                            </select>
+                        </div>
+                        <div id="monthFilterContainer" class="${reportType === 'monthly' ? '' : 'hidden'}">
+                            <label for="monthFilter" class="block text-sm font-medium text-gray-700">Select Month</label>
+                            <input type="month" id="monthFilter" value="${monthFilter}" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                        </div>
+                        <div id="yearFilterContainer" class="${reportType === 'annual' ? '' : 'hidden'}">
+                            <label for="yearFilter" class="block text-sm font-medium text-gray-700">Select Year</label>
+                            <input type="number" id="yearFilter" value="${yearFilter}" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="YYYY" min="2000" max="${new Date().getFullYear()}" />
+                        </div>
+                    </div>
+
+                    <div class="mb-4 text-right">
+                        <p class="text-lg font-bold text-gray-800">Total Quantity Delivered: <span id="totalQuantityDelivered">0</span></p>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200 rounded-lg overflow-hidden shadow-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DR Number</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Code</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                                </tr>
+                            </thead>
+                            <tbody id="deliveryReportTableBody" class="bg-white divide-y divide-gray-200">
+                                <!-- Table rows will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            // Add event listeners for filters
+            document.getElementById('clientFilter').addEventListener('input', (e) => {
+                clientFilter = e.target.value;
+                applyFilters();
+            });
+            document.getElementById('reportType').addEventListener('change', (e) => {
+                reportType = e.target.value;
+                monthFilter = '';
+                yearFilter = '';
+                document.getElementById('monthFilter').value = '';
+                document.getElementById('yearFilter').value = '';
+                document.getElementById('monthFilterContainer').classList.toggle('hidden', reportType !== 'monthly');
+                document.getElementById('yearFilterContainer').classList.toggle('hidden', reportType !== 'annual');
+                applyFilters();
+            });
+            document.getElementById('monthFilter').addEventListener('change', (e) => {
+                monthFilter = e.target.value;
+                applyFilters();
+            });
+            document.getElementById('yearFilter').addEventListener('input', (e) => {
+                yearFilter = e.target.value;
+                applyFilters();
+            });
+
+            applyFilters(); // Initial application of filters
+        }
+
+        async function renderAvailableStocksReport() {
+            const pageContentDiv = document.getElementById('page-content');
+            if (!pageContentDiv) return; // Ensure page-content div exists
+
+            const itemsRef = collection(db, `artifacts/${appId}/users/${userId}/items`);
+            const snapshot = await getDocs(itemsRef);
+            const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            items.sort((a, b) => a.itemCode.localeCompare(b.itemCode));
+
+            let tableHtml = '';
+            if (items.length === 0) {
+                tableHtml = `<tr><td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 text-center">No items found in inventory.</td></tr>`;
+            } else {
+                items.forEach(item => {
+                    tableHtml += `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                ${item.itemCode}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${item.description}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${item.stockOnHand}
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+
+            pageContentDiv.innerHTML = `
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-2xl font-bold mb-4 text-gray-800">Available Stocks</h2>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200 rounded-lg overflow-hidden shadow-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Code</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock On Hand</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                ${tableHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLoginForm() {
+            mainContentDiv.innerHTML = `
+                <div class="flex items-center justify-center min-h-screen bg-gray-100">
+                    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
+                        <div class="flex justify-center mb-6">
+                            <img
+                                src="LOGO CPCI FINAL.png"
+                                alt="CPCI Logo"
+                                class="w-32 h-auto rounded-full object-contain"
+                                onerror="this.onerror=null; this.src='https://placehold.co/128x128/cccccc/ffffff?text=LOGO';"
+                            />
+                        </div>
+                        <h2 class="text-3xl font-bold text-center text-gray-800 mb-6">Login</h2>
+                        <form id="login-form" class="space-y-6">
+                            <div>
+                                <label for="username" class="block text-sm font-medium text-gray-700">Username</label>
+                                <input type="text" id="username" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required />
+                            </div>
+                            <div>
+                                <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                                <input type="password" id="password" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required />
+                            </div>
+                            <p id="login-error" class="text-red-600 text-sm text-center hidden"></p>
+                            <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                Log In
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+            document.getElementById('login-form').addEventListener('submit', handleLoginSubmit);
+        }
+
+        async function handleLoginSubmit(e) {
+            e.preventDefault();
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
+            const loginErrorP = document.getElementById('login-error');
+
+            const username = usernameInput.value;
+            const password = passwordInput.value;
+
+            loginErrorP.classList.add('hidden'); // Clear previous errors
+
+            if (username === CORRECT_USERNAME && password === CORRECT_PASSWORD) {
+                try {
+                    const userCredential = await signInAnonymously(auth);
+                    userId = userCredential.user.uid;
+                    isLoggedIn = true;
+                    showMessage('Login successful!', 'success');
+                    renderApp(); // Render the main app after login
+                } catch (error) {
+                    console.error("Firebase anonymous sign-in error:", error);
+                    loginErrorP.textContent = `Authentication error: ${error.message}`;
+                    loginErrorP.classList.remove('hidden');
+                }
+            } else {
+                loginErrorP.textContent = 'Invalid username or password.';
+                loginErrorP.classList.remove('hidden');
+            }
+        }
+
+        function renderDashboard() {
+            mainContentDiv.innerHTML = `
+                ${renderAuthStatus()}
+                ${renderNavigation()}
+                <div class="bg-white p-8 rounded-lg shadow-xl" id="page-content"></div>
+            `;
+
+            // Attach event listeners for navigation and logout after rendering
+            document.getElementById('logout-button').addEventListener('click', handleLogout);
+            document.getElementById('nav-home').addEventListener('click', () => renderPage('home'));
+            document.getElementById('nav-addItem').addEventListener('click', () => renderPage('addItem'));
+            document.getElementById('nav-addStock').addEventListener('click', () => renderPage('addStock'));
+            document.getElementById('nav-deliverItem').addEventListener('click', () => renderPage('deliverItem'));
+            document.getElementById('nav-deliveryReport').addEventListener('click', () => renderPage('deliveryReport'));
+            document.getElementById('nav-availableStocks').addEventListener('click', () => renderPage('availableStocks'));
+
+            renderPage(currentPage); // Render the current page content within the dashboard
+        }
+
+        function renderApp() {
+            if (isLoggedIn) {
+                renderDashboard();
+            } else {
+                renderLoginForm();
+            }
+        }
+
+        async function renderPage(page) {
+            currentPage = page;
+            const pageContentDiv = document.getElementById('page-content');
+            if (!pageContentDiv) {
+                // This case should ideally not be hit if renderDashboard is called first.
+                // If it does, it means the dashboard structure isn't ready.
+                console.warn("page-content div not found. Re-rendering entire app.");
+                renderApp();
+                return;
+            }
+
+            switch (page) {
+                case 'home':
+                    pageContentDiv.innerHTML = renderHomePage();
+                    break;
+                case 'addItem':
+                    pageContentDiv.innerHTML = renderAddItemForm();
+                    document.getElementById('add-item-form').addEventListener('submit', handleAddItemSubmit);
+                    break;
+                case 'addStock':
+                    pageContentDiv.innerHTML = await renderAddStockForm();
+                    document.getElementById('add-stock-form').addEventListener('submit', handleAddStockSubmit);
+                    document.getElementById('itemSelect').addEventListener('change', updateCurrentStockDisplay);
+                    updateCurrentStockDisplay(); // Initial display for current stock
+                    break;
+                case 'deliverItem':
+                    pageContentDiv.innerHTML = await renderDeliverItemForm();
+                    document.getElementById('deliver-item-form').addEventListener('submit', handleDeliverItemSubmit);
+                    document.getElementById('itemSelectDelivery').addEventListener('change', updateDeliveryCurrentStockDisplay);
+                    updateDeliveryCurrentStockDisplay(); // Initial display for current stock
+                    break;
+                case 'deliveryReport':
+                    await renderDeliveryReport(); // This now updates pageContentDiv.innerHTML
+                    break;
+                case 'availableStocks':
+                    await renderAvailableStocksReport(); // This now updates pageContentDiv.innerHTML
+                    break;
+                default:
+                    pageContentDiv.innerHTML = renderHomePage();
+            }
+            // Re-render navigation to update active button styling
+            const navContainer = mainContentDiv.querySelector('nav');
+            if (navContainer) {
+                navContainer.outerHTML = renderNavigation();
+                // Re-attach listeners for navigation buttons as they were replaced
+                document.getElementById('nav-home').addEventListener('click', () => renderPage('home'));
+                document.getElementById('nav-addItem').addEventListener('click', () => renderPage('addItem'));
+                document.getElementById('nav-addStock').addEventListener('click', () => renderPage('addStock'));
+                document.getElementById('nav-deliverItem').addEventListener('click', () => renderPage('deliverItem'));
+                document.getElementById('nav-deliveryReport').addEventListener('click', () => renderPage('deliveryReport'));
+                document.getElementById('nav-availableStocks').addEventListener('click', () => renderPage('availableStocks'));
+            }
+        }
+
+        // Initialize Firebase and render the app
+        window.onload = async function() {
+            let firebaseApp;
+            // Check if a Firebase app is already initialized
+            if (!getApps().length) {
+                firebaseApp = initializeApp(firebaseConfig);
+            } else {
+                firebaseApp = getApp(); // If already initialized, get the default app
+            }
+
+            db = getFirestore(firebaseApp);
+            auth = getAuth(firebaseApp);
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    isLoggedIn = true;
+                } else {
+                    userId = null;
+                    isLoggedIn = false;
+                }
+                renderApp(); // Render the app based on login status
+            });
+
+            // Attempt anonymous sign-in on initial load if not already authenticated
+            // This is crucial for Firestore rules that require request.auth != null
+            if (!auth.currentUser && initialAuthToken) {
+                try {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } catch (error) {
+                    console.error("Error signing in with custom token:", error);
+                    // Fallback to anonymous sign-in if custom token fails or is not present
+                    try {
+                        await signInAnonymously(auth);
+                    } catch (anonError) {
+                        console.error("Error signing in anonymously:", anonError);
+                    }
+                }
+            } else if (!auth.currentUser) {
+                 try {
+                    await signInAnonymously(auth);
+                } catch (anonError) {
+                    console.error("Error signing in anonymously:", anonError);
+                }
+            }
+        };
+    </script>
+</body>
+</html>
