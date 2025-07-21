@@ -204,8 +204,8 @@
             }
 
             try {
-                // Modified path to public_inventory_data
-                const itemsRef = collection(db, `artifacts/${appId}/public_inventory_data/items`);
+                // Modified path to public_inventory_data/main_data/items
+                const itemsRef = collection(db, `artifacts/${appId}/public_inventory_data/main_data/items`);
                 const q = query(itemsRef, where('itemCode', '==', itemCode));
                 const querySnapshot = await getDocs(q);
 
@@ -232,8 +232,8 @@
         let currentItems = []; // To store items for dropdowns
 
         async function renderAddStockForm() {
-            // Modified path to public_inventory_data
-            const itemsRef = collection(db, `artifacts/${appId}/public_inventory_data/items`);
+            // Modified path to public_inventory_data/main_data/items
+            const itemsRef = collection(db, `artifacts/${appId}/public_inventory_data/main_data/items`);
             const snapshot = await getDocs(itemsRef);
             currentItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
@@ -280,8 +280,8 @@
             }
 
             try {
-                // Modified path to public_inventory_data
-                const itemRef = doc(db, `artifacts/${appId}/public_inventory_data/items`, selectedItemId);
+                // Modified path to public_inventory_data/main_data/items
+                const itemRef = doc(db, `artifacts/${appId}/public_inventory_data/main_data/items`, selectedItemId);
                 const itemDoc = await getDoc(itemRef);
 
                 if (!itemDoc.exists()) {
@@ -316,8 +316,8 @@
         }
 
         async function renderDeliverItemForm() {
-            // Modified path to public_inventory_data
-            const itemsRef = collection(db, `artifacts/${appId}/public_inventory_data/items`);
+            // Modified path to public_inventory_data/main_data/items
+            const itemsRef = collection(db, `artifacts/${appId}/public_inventory_data/main_data/items`);
             const snapshot = await getDocs(itemsRef);
             currentItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
@@ -392,8 +392,8 @@
             }
 
             try {
-                // Modified path to public_inventory_data
-                const itemRef = doc(db, `artifacts/${appId}/public_inventory_data/items`, selectedItemId);
+                // Modified path to public_inventory_data/main_data/items
+                const itemRef = doc(db, `artifacts/${appId}/public_inventory_data/main_data/items`, selectedItemId);
                 const itemDoc = await getDoc(itemRef);
 
                 if (!itemDoc.exists()) {
@@ -407,15 +407,15 @@
                     return;
                 }
 
-                const newStock = currentStockAfterCheck - quantityDelivered;
+                const newStock = currentStockAfterCheck - deliveredQty;
 
                 await updateDoc(itemRef, {
                     stockOnHand: newStock,
                     updatedAt: serverTimestamp()
                 });
 
-                // Modified path to public_inventory_data
-                const deliveriesRef = collection(db, `artifacts/${appId}/public_inventory_data/deliveries`);
+                // Modified path to public_inventory_data/main_data/deliveries
+                const deliveriesRef = collection(db, `artifacts/${appId}/public_inventory_data/main_data/deliveries`);
                 await addDoc(deliveriesRef, {
                     drNumber: drNumber, // Store DR Number
                     itemId: selectedItemId,
@@ -451,8 +451,8 @@
             const pageContentDiv = document.getElementById('page-content');
             if (!pageContentDiv) return; // Ensure page-content div exists
 
-            // Modified path to public_inventory_data
-            const deliveriesRef = collection(db, `artifacts/${appId}/public_inventory_data/deliveries`);
+            // Modified path to public_inventory_data/main_data/deliveries
+            const deliveriesRef = collection(db, `artifacts/${appId}/public_inventory_data/main_data/deliveries`);
             const snapshot = await getDocs(deliveriesRef);
             const deliveries = snapshot.docs.map(doc => ({
                 id: doc.id,
@@ -620,8 +620,8 @@
             const pageContentDiv = document.getElementById('page-content');
             if (!pageContentDiv) return; // Ensure page-content div exists
 
-            // Modified path to public_inventory_data
-            const itemsRef = collection(db, `artifacts/${appId}/public_inventory_data/items`);
+            // Modified path to public_inventory_data/main_data/items
+            const itemsRef = collection(db, `artifacts/${appId}/public_inventory_data/main_data/items`);
             const snapshot = await getDocs(itemsRef);
             const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             items.sort((a, b) => a.itemCode.localeCompare(b.itemCode));
