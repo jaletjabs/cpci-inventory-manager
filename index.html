@@ -788,6 +788,7 @@
                     break;
                 case 'deliverItem':
                     pageContentDiv.innerHTML = await renderDeliverItemForm();
+                    // Attach event listeners specifically for the deliver-item-form and its select/input changes
                     document.getElementById('deliver-item-form').addEventListener('submit', handleDeliverItemSubmit);
                     document.getElementById('itemSelectDelivery').addEventListener('change', updateDeliveryCurrentStockDisplay);
                     updateDeliveryCurrentStockDisplay(); // Initial display for current stock
