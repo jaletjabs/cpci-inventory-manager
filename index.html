@@ -372,7 +372,7 @@
             const selectedItemId = document.getElementById('itemSelectDelivery').value;
             const clientName = document.getElementById('clientName').value.trim();
             const quantityDeliveredInput = document.getElementById('quantityDelivered');
-            const quantityDelivered = parseInt(quantityDeliveredInput.value);
+            const quantityDelivered = parseInt(quantityDeliveredInput.value); // Correctly assigned here
             const deliveryDate = document.getElementById('deliveryDate').value;
 
             if (!drNumber || !selectedItemId || !clientName || isNaN(quantityDelivered) || quantityDelivered <= 0 || !deliveryDate) {
@@ -386,7 +386,7 @@
                 return;
             }
 
-            if (quantityDelivered > selectedItemData.stockOnHand) {
+            if (quantityDelivered > currentStock) { // Corrected: using quantityDelivered
                 showMessage('Quantity delivered cannot exceed stock on hand.', 'error');
                 return;
             }
@@ -407,7 +407,7 @@
                     return;
                 }
 
-                const newStock = currentStockAfterCheck - deliveredQty;
+                const newStock = currentStockAfterCheck - quantityDelivered;
 
                 await updateDoc(itemRef, {
                     stockOnHand: newStock,
